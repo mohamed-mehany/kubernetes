@@ -116,7 +116,7 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 	if pod == nil {
 		return nil
 	}
-	matchingTerms, err := getMatchingAntiAffinityTerms(pod, nodeNameToInfoMap)
+	matchingTerms, topologyValues, err := getMatchingAntiAffinityTerms(pod, nodeNameToInfoMap)
 	if err != nil {
 		return nil
 	}
@@ -133,6 +133,7 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 		matchingAntiAffinityTerms:          matchingTerms,
 		nodeNameToMatchingAffinityPods:     affinityPods,
 		nodeNameToMatchingAntiAffinityPods: antiAffinityPods,
+		topologyValueToAntiAffinityPods:    topologyValues,
 	}
 	for predicateName, precomputeFunc := range predicateMetadataProducers {
 		glog.V(10).Infof("Precompute: %v", predicateName)
@@ -308,10 +309,15 @@ func (meta *predicateMetadata) ShallowCopy() algorithm.PredicateMetadata {
 	for k, v := range meta.nodeNameToMatchingAntiAffinityPods {
 		newPredMeta.nodeNameToMatchingAntiAffinityPods[k] = append([]*v1.Pod(nil), v...)
 	}
+	newPredMeta.topologyValueToAntiAffinityPods = make(map[string][]string)
+	for k, v := range meta.topologyValueToAntiAffinityPods {
+		newPredMeta.topologyValueToAntiAffinityPods[k] = append([]string(nil), v...)
+	}
 	newPredMeta.serviceAffinityMatchingPodServices = append([]*v1.Service(nil),
 		meta.serviceAffinityMatchingPodServices...)
 	newPredMeta.serviceAffinityMatchingPodList = append([]*v1.Pod(nil),
 		meta.serviceAffinityMatchingPodList...)
+
 	return (algorithm.PredicateMetadata)(newPredMeta)
 }
 
