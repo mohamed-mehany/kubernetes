@@ -408,7 +408,9 @@ func (c *configFactory) invalidatePredicatesForPvUpdate(oldPV, newPV *v1.Persist
 	// which will cache PVs in PodBindingCache. When PV got updated, we should
 	// invalidate cache, otherwise PVAssumeCache.Assume will fail with out of sync
 	// error.
-	invalidPredicates.Insert(predicates.CheckVolumeBindingPred)
+	if utilfeature.DefaultFeatureGate.Enabled(features.VolumeScheduling) {
+		invalidPredicates.Insert(predicates.CheckVolumeBindingPred)
+	}
 	for k, v := range newPV.Labels {
 		// If PV update modifies the zone/region labels.
 		if isZoneRegionLabel(k) && !reflect.DeepEqual(v, oldPV.Labels[k]) {
@@ -770,6 +772,11 @@ func (c *configFactory) addNodeToCache(obj interface{}) {
 
 	if err := c.schedulerCache.AddNode(node); err != nil {
 		glog.Errorf("scheduler cache AddNode failed: %v", err)
+	}
+
+	if c.enableEquivalenceClassCache {
+		// GetNodeCache() will lazily create NodeCache for given node if it does not exist.
+		c.equivalencePodCache.GetNodeCache(node.GetName())
 	}
 
 	c.podQueue.MoveAllToActiveQueue()
@@ -1184,7 +1191,7 @@ func (c *configFactory) getPluginArgs() (*PluginFactoryArgs, error) {
 func (c *configFactory) getNextPod() *v1.Pod {
 	pod, err := c.podQueue.Pop()
 	if err == nil {
-		glog.V(4).Infof("About to try and schedule pod %v", pod.Name)
+		glog.V(4).Infof("About to try and schedule pod %v/%v", pod.Namespace, pod.Name)
 		return pod
 	}
 	glog.Errorf("Error while retrieving next pod from scheduling queue: %v", err)
