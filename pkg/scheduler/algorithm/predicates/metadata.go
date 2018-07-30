@@ -54,6 +54,9 @@ type predicateMetadata struct {
 	podPorts      []*v1.ContainerPort
 	//key is a pod full name with the anti-affinity rules.
 	matchingAntiAffinityTerms map[string][]matchingPodAntiAffinityTerm
+	// A map of antiffinity terms' topology ke values to the pods' names
+	// that can potentially match the affinity rules of the pod
+	topologyValueToAntiAffinityPods map[string][]string
 	// A map of node name to a list of Pods on the node that can potentially match
 	// the affinity rules of the "pod".
 	nodeNameToMatchingAffinityPods map[string][]*v1.Pod
@@ -145,6 +148,21 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 	if deletedPodFullName == schedutil.GetPodFullName(meta.pod) {
 		return fmt.Errorf("deletedPod and meta.pod must not be the same")
 	}
+
+	// Delete pod from matching topology values map
+	for _, term := range meta.matchingAntiAffinityTerms[deletedPodFullName] {
+		if topologyValue, ok := term.node.Labels[term.term.TopologyKey]; ok {
+			for index, podName := range meta.topologyValueToAntiAffinityPods[topologyValue] {
+				if podName == deletedPodFullName {
+					podsList := meta.topologyValueToAntiAffinityPods[topologyValue]
+					meta.topologyValueToAntiAffinityPods[topologyValue] = append(podsList[:index],
+						podsList[index+1:]...)
+					break
+				}
+			}
+		}
+	}
+
 	// Delete any anti-affinity rule from the deletedPod.
 	delete(meta.matchingAntiAffinityTerms, deletedPodFullName)
 	// Delete pod from the matching affinity or anti-affinity pods if exists.
@@ -214,6 +232,16 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 				podMatchingTerms...)
 		} else {
 			meta.matchingAntiAffinityTerms[addedPodFullName] = podMatchingTerms
+		}
+
+		for _, term := range podMatchingTerms {
+			if topologyValue, found := nodeInfo.Node().Labels[term.term.TopologyKey]; found {
+				if existingPods, ok := meta.topologyValueToAntiAffinityPods[topologyValue]; ok {
+					meta.topologyValueToAntiAffinityPods[topologyValue] = append(existingPods, schedutil.GetPodFullName(addedPod))
+				} else {
+					meta.topologyValueToAntiAffinityPods[topologyValue] = []string{schedutil.GetPodFullName(addedPod)}
+				}
+			}
 		}
 	}
 	// Add the pod to nodeNameToMatchingAffinityPods and nodeNameToMatchingAntiAffinityPods if needed.

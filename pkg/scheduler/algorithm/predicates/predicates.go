@@ -1255,6 +1255,8 @@ func getMatchingAntiAffinityTerms(pod *v1.Pod, nodeInfoMap map[string]*scheduler
 	var lock sync.Mutex
 	var firstError error
 	result := make(map[string][]matchingPodAntiAffinityTerm)
+	result2 := make(map[string][]string)
+
 	appendResult := func(toAppend map[string][]matchingPodAntiAffinityTerm) {
 		lock.Lock()
 		defer lock.Unlock()
@@ -1262,6 +1264,15 @@ func getMatchingAntiAffinityTerms(pod *v1.Pod, nodeInfoMap map[string]*scheduler
 			result[uid] = append(result[uid], terms...)
 		}
 	}
+
+	appendResult2 := func(toAppend map[string][]string) {
+		lock.Lock()
+		defer lock.Unlock()
+		for topologyValues, pods := range toAppend {
+			result2[topologyValues] = append(result2[topologyValues], pods...)
+		}
+	}
+
 	catchError := func(err error) {
 		lock.Lock()
 		defer lock.Unlock()
@@ -1278,6 +1289,8 @@ func getMatchingAntiAffinityTerms(pod *v1.Pod, nodeInfoMap map[string]*scheduler
 			return
 		}
 		nodeResult := make(map[string][]matchingPodAntiAffinityTerm)
+		nodeResult2 := make(map[string][]string)
+
 		for _, existingPod := range nodeInfo.PodsWithAffinity() {
 			affinity := existingPod.Spec.Affinity
 			if affinity == nil {
@@ -1295,11 +1308,18 @@ func getMatchingAntiAffinityTerms(pod *v1.Pod, nodeInfoMap map[string]*scheduler
 					nodeResult[existingPodFullName] = append(
 						nodeResult[existingPodFullName],
 						matchingPodAntiAffinityTerm{term: &term, node: node})
+
+					if topologyValue, ok := node.Labels[term.TopologyKey]; ok {
+						nodeResult2[topologyValue] = append(nodeResult2[topologyValue], existingPodFullName)
+					}
 				}
 			}
 		}
 		if len(nodeResult) > 0 {
 			appendResult(nodeResult)
+		}
+		if len(nodeResult2) > 0 {
+			appendResult2(nodeResult2)
 		}
 	}
 	workqueue.Parallelize(16, len(allNodeNames), processNode)
@@ -1375,21 +1395,43 @@ func (c *PodAffinityChecker) satisfiesExistingPodsAntiAffinity(pod *v1.Pod, meta
 			return ErrExistingPodsAntiAffinityRulesNotMatch, errors.New(errMessage)
 		}
 	}
-	for _, terms := range matchingTerms {
-		for i := range terms {
-			term := &terms[i]
-			if len(term.term.TopologyKey) == 0 {
-				errMessage := fmt.Sprintf("Empty topologyKey is not allowed except for PreferredDuringScheduling pod anti-affinity")
-				glog.Error(errMessage)
-				return ErrExistingPodsAntiAffinityRulesNotMatch, errors.New(errMessage)
-			}
-			if priorityutil.NodesHaveSameTopologyKey(node, term.node, term.term.TopologyKey) {
-				glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
-					podName(pod), node.Name, term.term)
-				return ErrExistingPodsAntiAffinityRulesNotMatch, nil
+
+	// LOOP over topology values, to get matching pods and get matching their matching terms to check for having Same Topolgy Key
+	// currently assumes that metadata topologyValuetoAntiAffinityPods is precomputed
+	for _, topologyValue := range node.Labels {
+		potentialPods := meta.(*predicateMetadata).topologyValueToAntiAffinityPods[topologyValue]
+		for _, matchingPod := range potentialPods {
+			podTerms := matchingTerms[matchingPod]
+			for i := range podTerms {
+				term := &podTerms[i]
+				if len(term.term.TopologyKey) == 0 {
+					errMessage := fmt.Sprintf("Empty topologyKey is not allowed except for PreferredDuringScheduling pod anti-affinity")
+					glog.Error(errMessage)
+					return ErrExistingPodsAntiAffinityRulesNotMatch, errors.New(errMessage)
+				}
+				if priorityutil.NodesHaveSameTopologyKey(node, term.node, term.term.TopologyKey) {
+					glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
+						podName(pod), node.Name, term.term)
+					return ErrExistingPodsAntiAffinityRulesNotMatch, nil
+				}
 			}
 		}
 	}
+	// for _, terms := range matchingTerms {
+	// 	for i := range terms {
+	// 		term := &terms[i]
+	// 		if len(term.term.TopologyKey) == 0 {
+	// 			errMessage := fmt.Sprintf("Empty topologyKey is not allowed except for PreferredDuringScheduling pod anti-affinity")
+	// 			glog.Error(errMessage)
+	// 			return ErrExistingPodsAntiAffinityRulesNotMatch, errors.New(errMessage)
+	// 		}
+	// 		if priorityutil.NodesHaveSameTopologyKey(node, term.node, term.term.TopologyKey) {
+	// 			glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
+	// 				podName(pod), node.Name, term.term)
+	// 			return ErrExistingPodsAntiAffinityRulesNotMatch, nil
+	// 		}
+	// 	}
+	// }
 	if glog.V(10) {
 		// We explicitly don't do glog.V(10).Infof() to avoid computing all the parameters if this is
 		// not logged. There is visible performance gain from it.
