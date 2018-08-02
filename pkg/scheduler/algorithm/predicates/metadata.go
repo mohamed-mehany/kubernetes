@@ -222,7 +222,7 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 		return fmt.Errorf("invalid node in nodeInfo")
 	}
 	// Add matching anti-affinity terms of the addedPod to the map.
-	podMatchingTerms, err := getMatchingAntiAffinityTermsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
+	podMatchingTerms, podTopologyValuesToMatchingPods, err := getMatchingAntiAffinityTermsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
 	if err != nil {
 		return err
 	}
@@ -235,14 +235,8 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 			meta.matchingAntiAffinityTerms[addedPodFullName] = podMatchingTerms
 		}
 
-		for _, term := range podMatchingTerms {
-			if topologyValue, found := nodeInfo.Node().Labels[term.term.TopologyKey]; found {
-				if existingPods, ok := meta.topologyValueToAntiAffinityPods[topologyValue]; ok {
-					meta.topologyValueToAntiAffinityPods[topologyValue] = append(existingPods, schedutil.GetPodFullName(addedPod))
-				} else {
-					meta.topologyValueToAntiAffinityPods[topologyValue] = []string{schedutil.GetPodFullName(addedPod)}
-				}
-			}
+		for topologyValue, pods := range podTopologyValuesToMatchingPods {
+			meta.topologyValueToAntiAffinityPods[topologyValue] = append(meta.topologyValueToAntiAffinityPods[topologyValue], pods...)
 		}
 	}
 	// Add the pod to nodeNameToMatchingAffinityPods and nodeNameToMatchingAntiAffinityPods if needed.
