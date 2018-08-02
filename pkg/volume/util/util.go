@@ -79,6 +79,16 @@ const (
 	VolumeDynamicallyCreatedByKey = "kubernetes.io/createdby"
 )
 
+// VolumeZoneConfig contains config information about zonal volume.
+type VolumeZoneConfig struct {
+	ZonePresent                bool
+	ZonesPresent               bool
+	ReplicaZoneFromNodePresent bool
+	Zone                       string
+	Zones                      string
+	ReplicaZoneFromNode        string
+}
+
 // IsReady checks for the existence of a regular file
 // called 'ready' in the given directory and returns
 // true if that file exists.
@@ -308,6 +318,77 @@ func LoadPodFromFile(filePath string) (*v1.Pod, error) {
 	return pod, nil
 }
 
+// SelectZone selects a zone for a volume based on several factors:
+// node.zone, allowedTopologies, zone/zones parameters from storageclass
+// and zones with active nodes from the cluster
+func SelectZoneForVolume(zoneParameterPresent, zonesParameterPresent bool, zoneParameter string, zonesParameter, zonesWithNodes sets.String, node *v1.Node, allowedTopologies []v1.TopologySelectorTerm, pvcName string) (string, error) {
+	if zoneParameterPresent && zonesParameterPresent {
+		return "", fmt.Errorf("both zone and zones StorageClass parameters must not be used at the same time")
+	}
+
+	// pick zone from node if present
+	if node != nil {
+		// DynamicProvisioningScheduling implicit since node is not nil
+		if zoneParameterPresent || zonesParameterPresent {
+			return "", fmt.Errorf("zone[s] cannot be specified in StorageClass if VolumeBindingMode is set to WaitForFirstConsumer. Please specify allowedTopologies in StorageClass for constraining zones.")
+		}
+
+		// pick node's zone and ignore any allowedTopologies (since scheduler is assumed to have accounted for it already)
+		z, ok := node.ObjectMeta.Labels[kubeletapis.LabelZoneFailureDomain]
+		if !ok {
+			return "", fmt.Errorf("%s Label for node missing", kubeletapis.LabelZoneFailureDomain)
+		}
+		return z, nil
+	}
+
+	// pick zone from allowedZones if specified
+	allowedZones, err := ZonesFromAllowedTopologies(allowedTopologies)
+	if err != nil {
+		return "", err
+	}
+
+	if (len(allowedTopologies) > 0) && (allowedZones.Len() == 0) {
+		return "", fmt.Errorf("no matchLabelExpressions with %s key found in allowedTopologies. Please specify matchLabelExpressions with %s key", kubeletapis.LabelZoneFailureDomain, kubeletapis.LabelZoneFailureDomain)
+	}
+
+	if allowedZones.Len() > 0 {
+		// DynamicProvisioningScheduling implicit since allowedZones present
+		if zoneParameterPresent || zonesParameterPresent {
+			return "", fmt.Errorf("zone[s] cannot be specified in StorageClass if allowedTopologies specified")
+		}
+		return ChooseZoneForVolume(*allowedZones, pvcName), nil
+	}
+
+	// pick zone from parameters if present
+	if zoneParameterPresent {
+		return zoneParameter, nil
+	}
+
+	if zonesParameterPresent {
+		return ChooseZoneForVolume(zonesParameter, pvcName), nil
+	}
+
+	// pick zone from zones with nodes
+	return ChooseZoneForVolume(zonesWithNodes, pvcName), nil
+}
+
+// ZonesFromAllowedTopologies returns a list of zones specified in allowedTopologies
+func ZonesFromAllowedTopologies(allowedTopologies []v1.TopologySelectorTerm) (*sets.String, error) {
+	zones := make(sets.String)
+	for _, term := range allowedTopologies {
+		for _, exp := range term.MatchLabelExpressions {
+			if exp.Key == kubeletapis.LabelZoneFailureDomain {
+				for _, value := range exp.Values {
+					zones.Insert(value)
+				}
+			} else {
+				return nil, fmt.Errorf("unsupported key found in matchLabelExpressions: %s", exp.Key)
+			}
+		}
+	}
+	return &zones, nil
+}
+
 func ZonesSetToLabelValue(strSet sets.String) string {
 	return strings.Join(strSet.UnsortedList(), kubeletapis.LabelMultiZoneDelimiter)
 }
@@ -361,7 +442,11 @@ func CalculateTimeoutForVolume(minimumTimeout, timeoutIncrement int, pv *v1.Pers
 // RoundUpSize(1500 * 1024*1024, 1024*1024*1024) returns '2'
 // (2 GiB is the smallest allocatable volume that can hold 1500MiB)
 func RoundUpSize(volumeSizeBytes int64, allocationUnitBytes int64) int64 {
-	return (volumeSizeBytes + allocationUnitBytes - 1) / allocationUnitBytes
+	roundedUp := volumeSizeBytes / allocationUnitBytes
+	if volumeSizeBytes%allocationUnitBytes > 0 {
+		roundedUp += 1
+	}
+	return roundedUp
 }
 
 // RoundUpToGB rounds up given quantity to chunks of GB
@@ -374,6 +459,32 @@ func RoundUpToGB(size resource.Quantity) int64 {
 func RoundUpToGiB(size resource.Quantity) int64 {
 	requestBytes := size.Value()
 	return RoundUpSize(requestBytes, GIB)
+}
+
+// RoundUpSizeInt calculates how many allocation units are needed to accommodate
+// a volume of given size. It returns an int instead of an int64 and an error if
+// there's overflow
+func RoundUpSizeInt(volumeSizeBytes int64, allocationUnitBytes int64) (int, error) {
+	roundedUp := RoundUpSize(volumeSizeBytes, allocationUnitBytes)
+	roundedUpInt := int(roundedUp)
+	if int64(roundedUpInt) != roundedUp {
+		return 0, fmt.Errorf("capacity %v is too great, casting results in integer overflow", roundedUp)
+	}
+	return roundedUpInt, nil
+}
+
+// RoundUpToGBInt rounds up given quantity to chunks of GB. It returns an
+// int instead of an int64 and an error if there's overflow
+func RoundUpToGBInt(size resource.Quantity) (int, error) {
+	requestBytes := size.Value()
+	return RoundUpSizeInt(requestBytes, GB)
+}
+
+// RoundUpToGiBInt rounds up given quantity upto chunks of GiB. It returns an
+// int instead of an int64 and an error if there's overflow
+func RoundUpToGiBInt(size resource.Quantity) (int, error) {
+	requestBytes := size.Value()
+	return RoundUpSizeInt(requestBytes, GIB)
 }
 
 // GenerateVolumeName returns a PV name with clusterName prefix. The function

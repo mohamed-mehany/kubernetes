@@ -28,11 +28,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 	restclient "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/portforward"
 	"k8s.io/client-go/transport/spdy"
-	"k8s.io/kubernetes/pkg/api/legacyscheme"
 	api "k8s.io/kubernetes/pkg/apis/core"
 	coreclient "k8s.io/kubernetes/pkg/client/clientset_generated/internalclientset/typed/core/internalversion"
 	"k8s.io/kubernetes/pkg/kubectl/cmd/templates"
@@ -142,7 +143,7 @@ func (f *defaultPortForwarder) ForwardPorts(method string, url *url.URL, opts Po
 // It rewrites ports as needed if the Service port declares targetPort.
 // It returns an error when a named targetPort can't find a match in the pod, or the Service did not declare
 // the port.
-func translateServicePortToTargetPort(ports []string, svc api.Service, pod api.Pod) ([]string, error) {
+func translateServicePortToTargetPort(ports []string, svc v1.Service, pod v1.Pod) ([]string, error) {
 	var translated []string
 	for _, port := range ports {
 		// port is in the form of [LOCAL PORT]:REMOTE PORT
@@ -183,7 +184,7 @@ func (o *PortForwardOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, arg
 	}
 
 	builder := f.NewBuilder().
-		WithScheme(legacyscheme.Scheme).
+		WithScheme(scheme.Scheme, scheme.Scheme.PrioritizedVersionsAllGroups()...).
 		ContinueOnError().
 		NamespaceParam(o.Namespace).DefaultNamespace()
 
@@ -209,7 +210,7 @@ func (o *PortForwardOptions) Complete(f cmdutil.Factory, cmd *cobra.Command, arg
 
 	// handle service port mapping to target port if needed
 	switch t := obj.(type) {
-	case *api.Service:
+	case *v1.Service:
 		o.Ports, err = translateServicePortToTargetPort(args[1:], *t, *forwardablePod)
 		if err != nil {
 			return err

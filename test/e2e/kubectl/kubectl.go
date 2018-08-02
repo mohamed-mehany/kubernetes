@@ -564,7 +564,7 @@ var _ = SIGDescribe("Kubectl client", func() {
 				ExecOrDie()
 			Expect(runOutput).ToNot(ContainSubstring("stdin closed"))
 			g := func(pods []*v1.Pod) sort.Interface { return sort.Reverse(controller.ActivePods(pods)) }
-			runTestPod, _, err := polymorphichelpers.GetFirstPod(f.InternalClientset.Core(), ns, "run=run-test-3", 1*time.Minute, g)
+			runTestPod, _, err := polymorphichelpers.GetFirstPod(f.ClientSet.CoreV1(), ns, "run=run-test-3", 1*time.Minute, g)
 			if err != nil {
 				os.Exit(1)
 			}
@@ -839,9 +839,6 @@ metadata:
 			output := framework.RunKubectlOrDie("cluster-info")
 			// Can't check exact strings due to terminal control commands (colors)
 			requiredItems := []string{"Kubernetes master", "is running at"}
-			if framework.ProviderIs("gce", "gke") {
-				requiredItems = append(requiredItems, "Heapster")
-			}
 			for _, item := range requiredItems {
 				if !strings.Contains(output, item) {
 					framework.Failf("Missing %s in kubectl cluster-info", item)

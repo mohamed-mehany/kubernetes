@@ -29,10 +29,10 @@ import (
 
 	"k8s.io/api/core/v1"
 	"k8s.io/api/extensions/v1beta1"
+	"k8s.io/apimachinery/pkg/api/apitesting/fuzzer"
+	"k8s.io/apimachinery/pkg/api/apitesting/roundtrip"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/testing/fuzzer"
-	"k8s.io/apimachinery/pkg/api/testing/roundtrip"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -72,7 +72,7 @@ func Convert_v1beta1_ReplicaSet_to_api_ReplicationController(in *v1beta1.Replica
 	}
 
 	intermediate2 := &v1.ReplicationController{}
-	if err := k8s_api_v1.Convert_extensions_ReplicaSet_to_v1_ReplicationController(intermediate1, intermediate2, s); err != nil {
+	if err := k8s_api_v1.Convert_extensions_ReplicaSet_To_v1_ReplicationController(intermediate1, intermediate2, s); err != nil {
 		return err
 	}
 

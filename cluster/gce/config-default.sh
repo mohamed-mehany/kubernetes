@@ -181,6 +181,8 @@ fi
 # Optional: Enable netd.
 ENABLE_NETD="${KUBE_ENABLE_NETD:-false}"
 CUSTOM_NETD_YAML="${KUBE_CUSTOM_NETD_YAML:-}"
+CUSTOM_CALICO_NODE_DAEMONSET_YAML="${KUBE_CUSTOM_CALICO_NODE_DAEMONSET_YAML:-}"
+CUSTOM_TYPHA_DEPLOYMENT_YAML="${KUBE_CUSTOM_TYPHA_DEPLOYMENT_YAML:-}"
 
 # To avoid running netd on a node that is not configured appropriately,
 # label each Node so that the DaemonSet can run the Pods only on ready Nodes.
@@ -193,6 +195,7 @@ fi
 #
 # TODO(#8867) Enable by default.
 ENABLE_METADATA_CONCEALMENT="${ENABLE_METADATA_CONCEALMENT:-false}" # true, false
+METADATA_CONCEALMENT_NO_FIREWALL="${METADATA_CONCEALMENT_NO_FIREWALL:-false}" # true, false
 if [[ ${ENABLE_METADATA_CONCEALMENT:-} == "true" ]]; then
   # Put the necessary label on the node so the daemonset gets scheduled.
   NODE_LABELS="${NODE_LABELS},beta.kubernetes.io/metadata-proxy-ready=true"
@@ -214,7 +217,7 @@ resources:
     - aesgcm:
         keys:
         - name: key1
-          secret: $(dd if=/dev/random bs=32 count=1 status=none | base64 | tr -d '\r\n')
+          secret: $(dd if=/dev/random bs=32 count=1 2>/dev/null | base64 | tr -d '\r\n')
 EOM
 )
 fi
@@ -411,6 +414,9 @@ HEAPSTER_GCP_BASE_MEMORY="${HEAPSTER_GCP_BASE_MEMORY:-140Mi}"
 HEAPSTER_GCP_MEMORY_PER_NODE="${HEAPSTER_GCP_MEMORY_PER_NODE:-4}"
 HEAPSTER_GCP_BASE_CPU="${HEAPSTER_GCP_BASE_CPU:-80m}"
 HEAPSTER_GCP_CPU_PER_NODE="${HEAPSTER_GCP_CPU_PER_NODE:-0.5}"
+
+# Optional: custom system banner for dashboard addon
+CUSTOM_KUBE_DASHBOARD_BANNER="${CUSTOM_KUBE_DASHBOARD_BANNER:-}"
 
 # Default Stackdriver resources version exported by Fluentd-gcp addon
 LOGGING_STACKDRIVER_RESOURCE_TYPES="${LOGGING_STACKDRIVER_RESOURCE_TYPES:-old}"

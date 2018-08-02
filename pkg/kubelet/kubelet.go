@@ -58,9 +58,11 @@ import (
 	"k8s.io/kubernetes/pkg/features"
 	internalapi "k8s.io/kubernetes/pkg/kubelet/apis/cri"
 	kubeletconfiginternal "k8s.io/kubernetes/pkg/kubelet/apis/kubeletconfig"
+	pluginwatcherapi "k8s.io/kubernetes/pkg/kubelet/apis/pluginregistration/v1alpha1"
 	"k8s.io/kubernetes/pkg/kubelet/cadvisor"
 	kubeletcertificate "k8s.io/kubernetes/pkg/kubelet/certificate"
 	"k8s.io/kubernetes/pkg/kubelet/checkpointmanager"
+	"k8s.io/kubernetes/pkg/kubelet/cloudresource"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	"k8s.io/kubernetes/pkg/kubelet/config"
 	"k8s.io/kubernetes/pkg/kubelet/configmap"
@@ -521,7 +523,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	}
 
 	if klet.cloud != nil {
-		klet.cloudResourceSyncManager = NewCloudResourceSyncManager(klet.cloud, nodeName, klet.nodeStatusUpdateFrequency)
+		klet.cloudResourceSyncManager = cloudresource.NewSyncManager(klet.cloud, nodeName, klet.nodeStatusUpdateFrequency)
 	}
 
 	var secretManager secret.Manager
@@ -601,8 +603,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 		// Create and start the CRI shim running as a grpc server.
 		streamingConfig := getStreamingConfig(kubeCfg, kubeDeps, crOptions)
 		ds, err := dockershim.NewDockerService(kubeDeps.DockerClientConfig, crOptions.PodSandboxImage, streamingConfig,
-			&pluginSettings, runtimeCgroups, kubeCfg.CgroupDriver, crOptions.DockershimRootDirectory,
-			crOptions.DockerDisableSharedPID, !crOptions.RedirectContainerStreaming)
+			&pluginSettings, runtimeCgroups, kubeCfg.CgroupDriver, crOptions.DockershimRootDirectory, !crOptions.RedirectContainerStreaming)
 		if err != nil {
 			return nil, err
 		}
@@ -789,7 +790,6 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 
 	klet.backOff = flowcontrol.NewBackOff(backOffPeriod, MaxContainerBackOff)
 	klet.podKillingCh = make(chan *kubecontainer.PodPair, podKillingChannelCapacity)
-	klet.setNodeStatusFuncs = klet.defaultNodeStatusFuncs()
 
 	// setup eviction manager
 	evictionManager, evictionAdmitHandler := eviction.NewManager(klet.resourceAnalyzer, evictionConfig, killPodNow(klet.podWorkers, kubeDeps.Recorder), klet.imageManager, klet.containerGC, kubeDeps.Recorder, nodeRef, klet.clock)
@@ -836,6 +836,11 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 	// Finally, put the most recent version of the config on the Kubelet, so
 	// people can see how it was configured.
 	klet.kubeletConfiguration = *kubeCfg
+
+	// Generating the status funcs should be the last thing we do,
+	// since this relies on the rest of the Kubelet having been constructed.
+	klet.setNodeStatusFuncs = klet.defaultNodeStatusFuncs()
+
 	return klet, nil
 }
 
@@ -962,7 +967,7 @@ type Kubelet struct {
 	// Cloud provider interface.
 	cloud cloudprovider.Interface
 	// Handles requests to cloud provider with timeout
-	cloudResourceSyncManager *cloudResourceSyncManager
+	cloudResourceSyncManager cloudresource.SyncManager
 
 	// Indicates that the node initialization happens in an external cloud controller
 	externalCloudProvider bool
@@ -1303,6 +1308,8 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 	if kl.enablePluginsWatcher {
 		// Adding Registration Callback function for CSI Driver
 		kl.pluginWatcher.AddHandler("CSIPlugin", csi.RegistrationCallback)
+		// Adding Registration Callback function for Device Manager
+		kl.pluginWatcher.AddHandler(pluginwatcherapi.DevicePlugin, kl.containerManager.GetPluginRegistrationHandlerCallback())
 		// Start the plugin watcher
 		glog.V(4).Infof("starting watcher")
 		if err := kl.pluginWatcher.Start(); err != nil {
@@ -1319,6 +1326,11 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 	}
 	if kl.kubeClient == nil {
 		glog.Warning("No api server defined - no node status update will be sent.")
+	}
+
+	// Start the cloud provider sync manager
+	if kl.cloudResourceSyncManager != nil {
+		go kl.cloudResourceSyncManager.Run(wait.NeverStop)
 	}
 
 	if err := kl.initializeModules(); err != nil {
@@ -1343,11 +1355,6 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 	// Start a goroutine responsible for killing pods (that are not properly
 	// handled by pod workers).
 	go wait.Until(kl.podKiller, 1*time.Second, wait.NeverStop)
-
-	// Start the cloud provider sync manager
-	if kl.cloudResourceSyncManager != nil {
-		go kl.cloudResourceSyncManager.Run(wait.NeverStop)
-	}
 
 	// Start component sync loops.
 	kl.statusManager.Start()
