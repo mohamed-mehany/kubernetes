@@ -476,8 +476,8 @@ func TestPredicateMetadata_ShallowCopy(t *testing.T) {
 			},
 		},
 		topologyValueToAntiAffinityPods: map[string][]string{
-			"machine1": []string{"p1", "p2"},
-			"machine2": []string{"p3"},
+			"machine1": {"p1", "p2"},
+			"machine2": {"p3"},
 		},
 		nodeNameToMatchingAffinityPods: map[string][]*v1.Pod{
 			"nodeA": {
