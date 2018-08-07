@@ -232,12 +232,12 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 		return fmt.Errorf("invalid node in nodeInfo")
 	}
 	// Add matching anti-affinity terms of the addedPod to the map.
-	matchingPodToTopologyPairs, podTopologyPairsToMatchingPods, err := getMatchingTopologyPairsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
+	matchingPodToTopologyPairs, podTopologyPairToMatchingPods, err := getMatchingTopologyPairsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
 	if err != nil {
 		return err
 	}
 	if len(matchingPodToTopologyPairs) > 0 {
-		for pair, pods := range podTopologyPairsToMatchingPods {
+		for pair, pods := range podTopologyPairToMatchingPods {
 			meta.topologyPairToAntiAffinityPods[pair] = append(meta.topologyPairToAntiAffinityPods[pair], pods...)
 		}
 		for pod, pairs := range matchingPodToTopologyPairs {
