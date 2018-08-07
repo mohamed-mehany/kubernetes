@@ -1401,8 +1401,8 @@ func (c *PodAffinityChecker) satisfiesExistingPodsAntiAffinity(pod *v1.Pod, meta
 		}
 	}
 
-	// Iterate over topology values, to get matching pods and get their matching terms to check for same topolgy key
-	// currently ignored if predicateMetadata is not precomputed
+	// Iterate over topology topology pairs to get any of the pods being affected by
+	// the scheduled pod anti-affinity rules
 	for topologyKey, topologyValue := range node.Labels {
 		if violatedPods, ok := topologyPairsToMatchingPods[topologyPair{key: topologyKey, value: topologyValue}]; ok {
 			affinity := violatedPods[0].Spec.Affinity

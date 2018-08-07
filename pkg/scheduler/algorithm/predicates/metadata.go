@@ -174,6 +174,8 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 		}
 	}
 
+	delete(meta.antiAffinityPodsToTopologyPair, deletedPod)
+
 	// Delete pod from the matching affinity or anti-affinity pods if exists.
 	affinity := meta.pod.Spec.Affinity
 	podNodeName := deletedPod.Spec.NodeName
