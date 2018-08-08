@@ -1408,13 +1408,11 @@ func (c *PodAffinityChecker) satisfiesExistingPodsAntiAffinity(pod *v1.Pod, meta
 	for topologyKey, topologyValue := range node.Labels {
 		if violatedPods, ok := topologyPairToMatchingPods[topologyPair{key: topologyKey, value: topologyValue}]; ok {
 			affinity := violatedPods[0].Spec.Affinity
-			if affinity != nil && affinity.PodAntiAffinity != nil {
-				for _, term := range GetPodAntiAffinityTerms(affinity.PodAntiAffinity) {
-					if term.TopologyKey == topologyKey {
-						glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
-							podName(pod), node.Name, term)
-						return ErrExistingPodsAntiAffinityRulesNotMatch, nil
-					}
+			for _, term := range GetPodAntiAffinityTerms(affinity.PodAntiAffinity) {
+				if term.TopologyKey == topologyKey {
+					glog.V(10).Infof("Cannot schedule pod %+v onto node %v,because of PodAntiAffinityTerm %v",
+						podName(pod), node.Name, term)
+					return ErrExistingPodsAntiAffinityRulesNotMatch, nil
 				}
 			}
 		}
