@@ -472,15 +472,11 @@ func TestPredicateMetadata_ShallowCopy(t *testing.T) {
 				},
 			},
 		},
-		antiAffinityPodToTopologyPairs: map[*v1.Pod][]topologyPair{
-			{ObjectMeta: metav1.ObjectMeta{Name: "p2", Labels: selector1},
-				Spec: v1.PodSpec{NodeName: "nodeC"},
-			}: {
+		antiAffinityPodToTopologyPairs: map[string][]topologyPair{
+			"p2": {
 				topologyPair{key: "name", value: "machine1"},
 			},
-			{ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: selector1},
-				Spec: v1.PodSpec{NodeName: "nodeA"},
-			}: {
+			"p1": {
 				topologyPair{key: "name", value: "machine2"},
 			},
 		},
