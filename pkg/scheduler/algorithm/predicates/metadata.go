@@ -64,7 +64,7 @@ type predicateMetadata struct {
 	topologyPairToAntiAffinityPods map[topologyPair][]*v1.Pod
 
 	// Reverse map for topologyPairToAntiAffinityPods to reduce deletion time
-	antiAffinityPodToTopologyPairs map[*v1.Pod][]topologyPair
+	antiAffinityPodToTopologyPairs map[string][]topologyPair
 
 	// A map of node name to a list of Pods on the node that can potentially match
 	// the affinity rules of the "pod".
@@ -160,9 +160,9 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 	}
 
 	// Delete pod from matching topology pairs map
-	for _, pair := range meta.antiAffinityPodToTopologyPairs[deletedPod] {
+	for _, pair := range meta.antiAffinityPodToTopologyPairs[deletedPodFullName] {
 		for index, pod := range meta.topologyPairToAntiAffinityPods[pair] {
-			if pod == deletedPod {
+			if schedutil.GetPodFullName(pod) == deletedPodFullName {
 				podsList := meta.topologyPairToAntiAffinityPods[pair]
 				podsList[index] = podsList[len(podsList)-1]
 				if len(podsList) <= 1 {
@@ -170,11 +170,12 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 				} else {
 					meta.topologyPairToAntiAffinityPods[pair] = podsList[:len(podsList)-1]
 				}
+				break
 			}
 		}
 	}
 
-	delete(meta.antiAffinityPodToTopologyPairs, deletedPod)
+	delete(meta.antiAffinityPodToTopologyPairs, deletedPodFullName)
 
 	// Delete pod from the matching affinity or anti-affinity pods if exists.
 	affinity := meta.pod.Spec.Affinity
@@ -309,7 +310,7 @@ func (meta *predicateMetadata) ShallowCopy() algorithm.PredicateMetadata {
 		newPredMeta.topologyPairToAntiAffinityPods[k] = append([]*v1.Pod(nil), v...)
 	}
 
-	newPredMeta.antiAffinityPodToTopologyPairs = make(map[*v1.Pod][]topologyPair)
+	newPredMeta.antiAffinityPodToTopologyPairs = make(map[string][]topologyPair)
 	for k, v := range meta.antiAffinityPodToTopologyPairs {
 		newPredMeta.antiAffinityPodToTopologyPairs[k] = append([]topologyPair(nil), v...)
 	}
