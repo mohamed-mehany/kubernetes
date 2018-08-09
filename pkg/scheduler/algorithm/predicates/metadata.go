@@ -51,6 +51,11 @@ type matchingPodAntiAffinityTerm struct {
 	node *v1.Node
 }
 
+type topologyPairsMaps struct {
+	topologyPairToAntiAffinityPods map[topologyPair][]*v1.Pod
+	antiAffinityPodToTopologyPairs map[string][]topologyPair
+}
+
 // NOTE: When new fields are added/removed or logic is changed, please make sure that
 // RemovePod, AddPod, and ShallowCopy functions are updated to work with the new changes.
 type predicateMetadata struct {
@@ -58,11 +63,8 @@ type predicateMetadata struct {
 	podBestEffort bool
 	podRequest    *schedulercache.Resource
 	podPorts      []*v1.ContainerPort
-	// A map of antiffinity terms' topology pairs to the pods'
-	// that can potentially match the affinity rules of the pod
-	topologyPairToAntiAffinityPods map[topologyPair][]*v1.Pod
-	// Reverse map for topologyPairToAntiAffinityPods to reduce deletion time
-	antiAffinityPodToTopologyPairs map[string][]topologyPair
+
+	topologyPairsAntiAffinityPodsMap *topologyPairsMaps
 	// A map of node name to a list of Pods on the node that can potentially match
 	// the affinity rules of the "pod".
 	nodeNameToMatchingAffinityPods map[string][]*v1.Pod
@@ -122,7 +124,7 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 	if pod == nil {
 		return nil
 	}
-	podToTopolgyPair, topologyPairToPods, err := getMatchingTopologyPairs(pod, nodeNameToInfoMap)
+	topologyPairsMaps, err := getMatchingTopologyPairs(pod, nodeNameToInfoMap)
 	if err != nil {
 		return nil
 	}
@@ -138,14 +140,43 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 		podPorts:                           schedutil.GetContainerPorts(pod),
 		nodeNameToMatchingAffinityPods:     affinityPods,
 		nodeNameToMatchingAntiAffinityPods: antiAffinityPods,
-		topologyPairToAntiAffinityPods:     topologyPairToPods,
-		antiAffinityPodToTopologyPairs:     podToTopolgyPair,
+		topologyPairsAntiAffinityPodsMap:   topologyPairsMaps,
 	}
 	for predicateName, precomputeFunc := range predicateMetadataProducers {
 		glog.V(10).Infof("Precompute: %v", predicateName)
 		precomputeFunc(predicateMetadata)
 	}
 	return predicateMetadata
+}
+func (topologyPairsMaps *topologyPairsMaps) AddTopologyPair(pair topologyPair, pod *v1.Pod) {
+	topologyPairsMaps.topologyPairToAntiAffinityPods[pair] = append(topologyPairsMaps.topologyPairToAntiAffinityPods[pair], pod)
+	topologyPairsMaps.antiAffinityPodToTopologyPairs[schedutil.GetPodFullName(pod)] = append(topologyPairsMaps.antiAffinityPodToTopologyPairs[schedutil.GetPodFullName(pod)], pair)
+}
+func (topologyPairsMaps *topologyPairsMaps) RemovePod(podName string) {
+	for _, pair := range topologyPairsMaps.antiAffinityPodToTopologyPairs[podName] {
+		for index, pod := range topologyPairsMaps.topologyPairToAntiAffinityPods[pair] {
+			if schedutil.GetPodFullName(pod) == podName {
+				podsList := topologyPairsMaps.topologyPairToAntiAffinityPods[pair]
+				podsList[index] = podsList[len(podsList)-1]
+				if len(podsList) <= 1 {
+					delete(topologyPairsMaps.topologyPairToAntiAffinityPods, pair)
+				} else {
+					topologyPairsMaps.topologyPairToAntiAffinityPods[pair] = podsList[:len(podsList)-1]
+				}
+				break
+			}
+		}
+	}
+	delete(topologyPairsMaps.antiAffinityPodToTopologyPairs, podName)
+}
+
+func (topologyPairsMaps *topologyPairsMaps) appendMaps(toAppend *topologyPairsMaps) {
+	for pod, pairs := range toAppend.antiAffinityPodToTopologyPairs {
+		topologyPairsMaps.antiAffinityPodToTopologyPairs[pod] = append(topologyPairsMaps.antiAffinityPodToTopologyPairs[pod], pairs...)
+	}
+	for pair, pods := range toAppend.topologyPairToAntiAffinityPods {
+		topologyPairsMaps.topologyPairToAntiAffinityPods[pair] = append(topologyPairsMaps.topologyPairToAntiAffinityPods[pair], pods...)
+	}
 }
 
 // RemovePod changes predicateMetadata assuming that the given `deletedPod` is
@@ -155,22 +186,7 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 	if deletedPodFullName == schedutil.GetPodFullName(meta.pod) {
 		return fmt.Errorf("deletedPod and meta.pod must not be the same")
 	}
-	// Delete pod from matching topology pairs map
-	for _, pair := range meta.antiAffinityPodToTopologyPairs[deletedPodFullName] {
-		for index, pod := range meta.topologyPairToAntiAffinityPods[pair] {
-			if schedutil.GetPodFullName(pod) == deletedPodFullName {
-				podsList := meta.topologyPairToAntiAffinityPods[pair]
-				podsList[index] = podsList[len(podsList)-1]
-				if len(podsList) <= 1 {
-					delete(meta.topologyPairToAntiAffinityPods, pair)
-				} else {
-					meta.topologyPairToAntiAffinityPods[pair] = podsList[:len(podsList)-1]
-				}
-				break
-			}
-		}
-	}
-	delete(meta.antiAffinityPodToTopologyPairs, deletedPodFullName)
+	meta.topologyPairsAntiAffinityPodsMap.RemovePod(deletedPodFullName)
 	// Delete pod from the matching affinity or anti-affinity pods if exists.
 	affinity := meta.pod.Spec.Affinity
 	podNodeName := deletedPod.Spec.NodeName
@@ -227,17 +243,12 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 		return fmt.Errorf("invalid node in nodeInfo")
 	}
 	// Add matching anti-affinity terms of the addedPod to the map.
-	matchingPodToTopologyPairs, podTopologyPairToMatchingPods, err := getMatchingTopologyPairsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
+	topologyPairsMaps, err := getMatchingTopologyPairsOfExistingPod(meta.pod, addedPod, nodeInfo.Node())
 	if err != nil {
 		return err
 	}
-	if len(matchingPodToTopologyPairs) > 0 {
-		for pair, pods := range podTopologyPairToMatchingPods {
-			meta.topologyPairToAntiAffinityPods[pair] = append(meta.topologyPairToAntiAffinityPods[pair], pods...)
-		}
-		for pod, pairs := range matchingPodToTopologyPairs {
-			meta.antiAffinityPodToTopologyPairs[pod] = append(meta.antiAffinityPodToTopologyPairs[pod], pairs...)
-		}
+	if len(topologyPairsMaps.antiAffinityPodToTopologyPairs) > 0 {
+		meta.topologyPairsAntiAffinityPodsMap.appendMaps(topologyPairsMaps)
 	}
 	// Add the pod to nodeNameToMatchingAffinityPods and nodeNameToMatchingAntiAffinityPods if needed.
 	affinity := meta.pod.Spec.Affinity
@@ -284,11 +295,12 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 // its maps and slices, but it does not copy the contents of pointer values.
 func (meta *predicateMetadata) ShallowCopy() algorithm.PredicateMetadata {
 	newPredMeta := &predicateMetadata{
-		pod:                      meta.pod,
-		podBestEffort:            meta.podBestEffort,
-		podRequest:               meta.podRequest,
-		serviceAffinityInUse:     meta.serviceAffinityInUse,
-		ignoredExtendedResources: meta.ignoredExtendedResources,
+		pod:                              meta.pod,
+		podBestEffort:                    meta.podBestEffort,
+		podRequest:                       meta.podRequest,
+		serviceAffinityInUse:             meta.serviceAffinityInUse,
+		ignoredExtendedResources:         meta.ignoredExtendedResources,
+		topologyPairsAntiAffinityPodsMap: meta.topologyPairsAntiAffinityPodsMap,
 	}
 	newPredMeta.podPorts = append([]*v1.ContainerPort(nil), meta.podPorts...)
 	newPredMeta.nodeNameToMatchingAffinityPods = make(map[string][]*v1.Pod)
@@ -299,14 +311,9 @@ func (meta *predicateMetadata) ShallowCopy() algorithm.PredicateMetadata {
 	for k, v := range meta.nodeNameToMatchingAntiAffinityPods {
 		newPredMeta.nodeNameToMatchingAntiAffinityPods[k] = append([]*v1.Pod(nil), v...)
 	}
-	newPredMeta.topologyPairToAntiAffinityPods = make(map[topologyPair][]*v1.Pod)
-	for k, v := range meta.topologyPairToAntiAffinityPods {
-		newPredMeta.topologyPairToAntiAffinityPods[k] = append([]*v1.Pod(nil), v...)
-	}
-	newPredMeta.antiAffinityPodToTopologyPairs = make(map[string][]topologyPair)
-	for k, v := range meta.antiAffinityPodToTopologyPairs {
-		newPredMeta.antiAffinityPodToTopologyPairs[k] = append([]topologyPair(nil), v...)
-	}
+	newPredMeta.topologyPairsAntiAffinityPodsMap = &topologyPairsMaps{topologyPairToAntiAffinityPods: make(map[topologyPair][]*v1.Pod),
+		antiAffinityPodToTopologyPairs: make(map[string][]topologyPair)}
+	newPredMeta.topologyPairsAntiAffinityPodsMap.appendMaps(meta.topologyPairsAntiAffinityPodsMap)
 	newPredMeta.serviceAffinityMatchingPodServices = append([]*v1.Service(nil),
 		meta.serviceAffinityMatchingPodServices...)
 	newPredMeta.serviceAffinityMatchingPodList = append([]*v1.Pod(nil),
