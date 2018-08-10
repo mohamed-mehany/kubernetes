@@ -128,7 +128,7 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 	if err != nil {
 		return nil
 	}
-	affinityPods, antiAffinityPods, err := getPodsMatchingAffinity(pod, nodeNameToInfoMap)
+	affinityPods, _, err := getPodsMatchingAffinity(pod, nodeNameToInfoMap)
 	if err != nil {
 		glog.Errorf("[predicate meta data generation] error finding pods that match affinity terms: %v", err)
 		return nil
@@ -139,7 +139,7 @@ func (pfactory *PredicateMetadataFactory) GetMetadata(pod *v1.Pod, nodeNameToInf
 		podRequest:                         GetResourceRequest(pod),
 		podPorts:                           schedutil.GetContainerPorts(pod),
 		nodeNameToMatchingAffinityPods:     affinityPods,
-		nodeNameToMatchingAntiAffinityPods: antiAffinityPods,
+		nodeNameToMatchingAntiAffinityPods: nil,
 		topologyPairsAntiAffinityPodsMap:   topologyPairsMaps,
 	}
 	for predicateName, precomputeFunc := range predicateMetadataProducers {

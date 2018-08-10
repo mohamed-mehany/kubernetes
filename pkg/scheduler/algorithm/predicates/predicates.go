@@ -1403,18 +1403,42 @@ func (c *PodAffinityChecker) satisfiesExistingPodsAntiAffinity(pod *v1.Pod, meta
 	return nil, nil
 }
 
+func (c *PodAffinityChecker) anyPodsMatchingTopologyTerms(pod *v1.Pod, matchingPods map[string][]*v1.Pod, nodeInfo *schedulercache.NodeInfo, terms []v1.PodAffinityTerm) (bool, error) {
+	for nodeName, targetPods := range matchingPods {
+		targetPodNodeInfo, err := c.info.GetNodeInfo(nodeName)
+		if err != nil {
+			return false, err
+		}
+		if len(targetPods) > 0 {
+			allTermsMatched := true
+			for _, term := range terms {
+				if !priorityutil.NodesHaveSameTopologyKey(nodeInfo.Node(), targetPodNodeInfo, term.TopologyKey) {
+					allTermsMatched = false
+					break
+				}
+			}
+			if allTermsMatched {
+				// We have 1 or more pods on the target node that have already matched namespace and selector
+				// and all of the terms topologies matched the target node. So, there is at least 1 matching pod on the node.
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // anyPodsMatchingTopologyTerms checks whether any of the nodes given via
 // "targetPods" matches topology of all the "terms" for the give "pod" and "nodeInfo".
-func (c *PodAffinityChecker) anyPodsMatchingTopologyTerms(pod *v1.Pod, topologyPairsMaps *topologyPairsMaps, nodeInfo *schedulercache.NodeInfo, terms []v1.PodAffinityTerm) (bool, error) {
+func (c *PodAffinityChecker) anyPodsMatchingTopologyTermsAntiAffinity(pod *v1.Pod, topologyPairsMaps *topologyPairsMaps, nodeInfo *schedulercache.NodeInfo, terms []v1.PodAffinityTerm) (bool, error) {
 	countMap := make(map[string]int)
-	allTermsMatched := false
+	termsLen := len(terms)
 	for _, term := range terms {
 		if topologyValue, ok := nodeInfo.Node().Labels[term.TopologyKey]; ok {
 			matchingPods := topologyPairsMaps.topologyPairToAntiAffinityPods[topologyPair{key: term.TopologyKey, value: topologyValue}]
 			for _, matchingPod := range matchingPods {
 				podName := schedutil.GetPodFullName(matchingPod)
 				countMap[podName] = countMap[podName] + 1
-				if countMap[podName] == len(terms) {
+				if countMap[podName] == termsLen {
 					return true, nil
 				}
 			}
@@ -1479,7 +1503,7 @@ func (c *PodAffinityChecker) satisfiesPodsAffinityAntiAffinity(pod *v1.Pod,
 		// matchingPods = predicateMeta.nodeNameToMatchingAntiAffinityPods
 		topologyPairsMaps := predicateMeta.topologyPairsAntiAffinityPodsMap
 		if antiAffinityTerms := GetPodAntiAffinityTerms(affinity.PodAntiAffinity); len(antiAffinityTerms) > 0 {
-			matchExists, err := c.anyPodsMatchingTopologyTerms(pod, topologyPairsMaps, nodeInfo, antiAffinityTerms)
+			matchExists, err := c.anyPodsMatchingTopologyTermsAntiAffinity(pod, topologyPairsMaps, nodeInfo, antiAffinityTerms)
 			if err != nil || matchExists {
 				glog.V(10).Infof("Cannot schedule pod %+v onto node %v, because of PodAntiAffinity, err: %v",
 					podName(pod), node.Name, err)
