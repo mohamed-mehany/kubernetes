@@ -202,17 +202,17 @@ func (meta *predicateMetadata) RemovePod(deletedPod *v1.Pod) error {
 				}
 			}
 		}
-		if affinity.PodAntiAffinity != nil {
-			for i, p := range meta.nodeNameToMatchingAntiAffinityPods[podNodeName] {
-				if p == deletedPod {
-					s := meta.nodeNameToMatchingAntiAffinityPods[podNodeName]
-					s[i] = s[len(s)-1]
-					s = s[:len(s)-1]
-					meta.nodeNameToMatchingAntiAffinityPods[podNodeName] = s
-					break
-				}
-			}
-		}
+		// if affinity.PodAntiAffinity != nil {
+		// 	for i, p := range meta.nodeNameToMatchingAntiAffinityPods[podNodeName] {
+		// 		if p == deletedPod {
+		// 			s := meta.nodeNameToMatchingAntiAffinityPods[podNodeName]
+		// 			s[i] = s[len(s)-1]
+		// 			s = s[:len(s)-1]
+		// 			meta.nodeNameToMatchingAntiAffinityPods[podNodeName] = s
+		// 			break
+		// 		}
+		// 	}
+		// }
 	}
 	// All pods in the serviceAffinityMatchingPodList are in the same namespace.
 	// So, if the namespace of the first one is not the same as the namespace of the
@@ -266,18 +266,18 @@ func (meta *predicateMetadata) AddPod(addedPod *v1.Pod, nodeInfo *schedulercache
 				meta.nodeNameToMatchingAffinityPods[podNodeName] = append(meta.nodeNameToMatchingAffinityPods[podNodeName], addedPod)
 			}
 		}
-		if targetPodMatchesAntiAffinityOfPod(meta.pod, addedPod) {
-			found := false
-			for _, p := range meta.nodeNameToMatchingAntiAffinityPods[podNodeName] {
-				if p == addedPod {
-					found = true
-					break
-				}
-			}
-			if !found {
-				meta.nodeNameToMatchingAntiAffinityPods[podNodeName] = append(meta.nodeNameToMatchingAntiAffinityPods[podNodeName], addedPod)
-			}
-		}
+		// if targetPodMatchesAntiAffinityOfPod(meta.pod, addedPod) {
+		// 	found := false
+		// 	for _, p := range meta.nodeNameToMatchingAntiAffinityPods[podNodeName] {
+		// 		if p == addedPod {
+		// 			found = true
+		// 			break
+		// 		}
+		// 	}
+		// 	if !found {
+		// 		meta.nodeNameToMatchingAntiAffinityPods[podNodeName] = append(meta.nodeNameToMatchingAntiAffinityPods[podNodeName], addedPod)
+		// 	}
+		// }
 	}
 	// If addedPod is in the same namespace as the meta.pod, update the list
 	// of matching pods if applicable.
