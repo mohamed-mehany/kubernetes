@@ -57,6 +57,7 @@ func BenchmarkSchedulingAntiAffinity(b *testing.B) {
 	tests := []struct{ nodes, existingPods, minPods int }{
 		{nodes: 500, existingPods: 250, minPods: 250},
 		{nodes: 500, existingPods: 5000, minPods: 250},
+		{nodes: 5000, existingPods: 0, minPods: 2000},
 	}
 	// The setup strategy creates pods with no affinity rules.
 	setupStrategy := testutils.NewSimpleWithControllerCreatePodStrategy("setup")
