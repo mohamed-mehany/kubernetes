@@ -2603,189 +2603,189 @@ func TestInterPodAffinityWithMultipleNodes(t *testing.T) {
 		name                              string
 		nometa                            bool
 	}{
-		{
-			pod: &v1.Pod{
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAffinity: &v1.PodAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"bar"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
-			},
-			fits: map[string]bool{
-				"machine1": true,
-				"machine2": true,
-				"machine3": false,
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil, {ErrPodAffinityNotMatch, ErrPodAffinityRulesNotMatch}},
-			name: "A pod can be scheduled onto all the nodes that have the same topology key & label value with one of them has an existing pod that match the affinity rules",
-		},
-		{
-			pod: &v1.Pod{
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						NodeAffinity: &v1.NodeAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
-								NodeSelectorTerms: []v1.NodeSelectorTerm{
-									{
-										MatchExpressions: []v1.NodeSelectorRequirement{
-											{
-												Key:      "hostname",
-												Operator: v1.NodeSelectorOpNotIn,
-												Values:   []string{"h1"},
-											},
-										},
-									},
-								},
-							},
-						},
-						PodAffinity: &v1.PodAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"abc"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
-				{Spec: v1.PodSpec{NodeName: "nodeB"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "def"}}},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "hostname": "h1"}}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "hostname": "h2"}}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil},
-			fits: map[string]bool{
-				"nodeA": false,
-				"nodeB": true,
-			},
-			name: "NodeA and nodeB have same topologyKey and label value. NodeA does not satisfy node affinity rule, but has an existing pod that match the inter pod affinity rule. The pod can be scheduled onto nodeB.",
-		},
-		{
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"foo":     "bar",
-						"service": "securityscan",
-					},
-				},
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAffinity: &v1.PodAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"bar"},
-											},
-										},
-									},
-									TopologyKey: "zone",
-								},
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "service",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"securityscan"},
-											},
-										},
-									},
-									TopologyKey: "zone",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: map[string]string{"foo": "bar"}}}},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"zone": "az1", "hostname": "h1"}}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"zone": "az2", "hostname": "h2"}}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil},
-			fits: map[string]bool{
-				"nodeA": true,
-				"nodeB": true,
-			},
-			name: "The affinity rule is to schedule all of the pods of this collection to the same zone. The first pod of the collection " +
-				"should not be blocked from being scheduled onto any node, even there's no existing pod that match the rule anywhere.",
-		},
-		{
-			pod: &v1.Pod{
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAntiAffinity: &v1.PodAntiAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"abc"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "hostname": "nodeA"}}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "hostname": "nodeB"}}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, {ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}},
-			fits: map[string]bool{
-				"nodeA": false,
-				"nodeB": false,
-			},
-			name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA and nodeB.",
-		},
+		//{
+		//pod: &v1.Pod{
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAffinity: &v1.PodAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"bar"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{Spec: v1.PodSpec{NodeName: "machine1"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: podLabelA}},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "machine1", Labels: labelRgChina}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "machine2", Labels: labelRgChinaAzAz1}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "machine3", Labels: labelRgIndia}},
+		//},
+		//fits: map[string]bool{
+		//"machine1": true,
+		//"machine2": true,
+		//"machine3": false,
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil, {ErrPodAffinityNotMatch, ErrPodAffinityRulesNotMatch}},
+		//name: "A pod can be scheduled onto all the nodes that have the same topology key & label value with one of them has an existing pod that match the affinity rules",
+		//},
+		//{
+		//pod: &v1.Pod{
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//NodeAffinity: &v1.NodeAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: &v1.NodeSelector{
+		//NodeSelectorTerms: []v1.NodeSelectorTerm{
+		//{
+		//MatchExpressions: []v1.NodeSelectorRequirement{
+		//{
+		//Key:      "hostname",
+		//Operator: v1.NodeSelectorOpNotIn,
+		//Values:   []string{"h1"},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//PodAffinity: &v1.PodAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"abc"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
+		//{Spec: v1.PodSpec{NodeName: "nodeB"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "def"}}},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "hostname": "h1"}}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "hostname": "h2"}}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil},
+		//fits: map[string]bool{
+		//"nodeA": false,
+		//"nodeB": true,
+		//},
+		//name: "NodeA and nodeB have same topologyKey and label value. NodeA does not satisfy node affinity rule, but has an existing pod that match the inter pod affinity rule. The pod can be scheduled onto nodeB.",
+		//},
+		//{
+		//pod: &v1.Pod{
+		//ObjectMeta: metav1.ObjectMeta{
+		//Labels: map[string]string{
+		//"foo":     "bar",
+		//"service": "securityscan",
+		//},
+		//},
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAffinity: &v1.PodAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"bar"},
+		//},
+		//},
+		//},
+		//TopologyKey: "zone",
+		//},
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "service",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"securityscan"},
+		//},
+		//},
+		//},
+		//TopologyKey: "zone",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Name: "p1", Labels: map[string]string{"foo": "bar"}}}},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"zone": "az1", "hostname": "h1"}}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"zone": "az2", "hostname": "h2"}}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{nil, nil},
+		//fits: map[string]bool{
+		//"nodeA": true,
+		//"nodeB": true,
+		//},
+		//name: "The affinity rule is to schedule all of the pods of this collection to the same zone. The first pod of the collection " +
+		//"should not be blocked from being scheduled onto any node, even there's no existing pod that match the rule anywhere.",
+		//},
+		//{
+		//pod: &v1.Pod{
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"abc"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: map[string]string{"region": "r1", "hostname": "nodeA"}}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: map[string]string{"region": "r1", "hostname": "nodeB"}}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, {ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}},
+		//fits: map[string]bool{
+		//"nodeA": false,
+		//"nodeB": false,
+		//},
+		//name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA and nodeB.",
+		//},
 		{
 			pod: &v1.Pod{
 				Spec: v1.PodSpec{
@@ -2835,193 +2835,193 @@ func TestInterPodAffinityWithMultipleNodes(t *testing.T) {
 			},
 			name: "This test ensures that anti-affinity matches a pod when all terms of the anti-affinity rule matches a pod.",
 		},
-		{
-			pod: &v1.Pod{
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAntiAffinity: &v1.PodAntiAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"abc"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, {ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, nil},
-			fits: map[string]bool{
-				"nodeA": false,
-				"nodeB": false,
-				"nodeC": true,
-			},
-			name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA and nodeB but can be scheduled onto nodeC",
-		},
-		{
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "123"}},
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAntiAffinity: &v1.PodAntiAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"bar"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "bar"}}},
-				{
-					Spec: v1.PodSpec{
-						NodeName: "nodeC",
-						Affinity: &v1.Affinity{
-							PodAntiAffinity: &v1.PodAntiAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-									{
-										LabelSelector: &metav1.LabelSelector{
-											MatchExpressions: []metav1.LabelSelectorRequirement{
-												{
-													Key:      "foo",
-													Operator: metav1.LabelSelectorOpIn,
-													Values:   []string{"123"},
-												},
-											},
-										},
-										TopologyKey: "region",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeD", Labels: labelRgUS}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{
-				{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
-				{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
-				{ErrPodAffinityNotMatch, ErrExistingPodsAntiAffinityRulesNotMatch},
-				nil,
-			},
-			fits: map[string]bool{
-				"nodeA": false,
-				"nodeB": false,
-				"nodeC": false,
-				"nodeD": true,
-			},
-			name:   "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. NodeC has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA, nodeB and nodeC but can be schedulerd onto nodeD",
-			nometa: true,
-		},
-		{
-			pod: &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels:    map[string]string{"foo": "123"},
-					Namespace: "NS1",
-				},
-				Spec: v1.PodSpec{
-					Affinity: &v1.Affinity{
-						PodAntiAffinity: &v1.PodAntiAffinity{
-							RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-								{
-									LabelSelector: &metav1.LabelSelector{
-										MatchExpressions: []metav1.LabelSelectorRequirement{
-											{
-												Key:      "foo",
-												Operator: metav1.LabelSelectorOpIn,
-												Values:   []string{"bar"},
-											},
-										},
-									},
-									TopologyKey: "region",
-								},
-							},
-						},
-					},
-				},
-			},
-			pods: []*v1.Pod{
-				{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels:    map[string]string{"foo": "bar"},
-						Namespace: "NS1",
-					},
-					Spec: v1.PodSpec{NodeName: "nodeA"},
-				},
-				{
-					ObjectMeta: metav1.ObjectMeta{Namespace: "NS2"},
-					Spec: v1.PodSpec{
-						NodeName: "nodeC",
-						Affinity: &v1.Affinity{
-							PodAntiAffinity: &v1.PodAntiAffinity{
-								RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
-									{
-										LabelSelector: &metav1.LabelSelector{
-											MatchExpressions: []metav1.LabelSelectorRequirement{
-												{
-													Key:      "foo",
-													Operator: metav1.LabelSelectorOpIn,
-													Values:   []string{"123"},
-												},
-											},
-										},
-										TopologyKey: "region",
-									},
-								},
-							},
-						},
-					},
-				},
-			},
-			nodes: []v1.Node{
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
-				{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
-			},
-			nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{
-				{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
-				{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
-				nil,
-			},
-			fits: map[string]bool{
-				"nodeA": false,
-				"nodeB": false,
-				"nodeC": true,
-			},
-			name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA, nodeB, but can be scheduled onto nodeC (NodeC has an existing pod that match the inter pod affinity rule but in different namespace)",
-		},
+		//{
+		//pod: &v1.Pod{
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"abc"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "abc"}}},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, {ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch}, nil},
+		//fits: map[string]bool{
+		//"nodeA": false,
+		//"nodeB": false,
+		//"nodeC": true,
+		//},
+		//name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA and nodeB but can be scheduled onto nodeC",
+		//},
+		//{
+		//pod: &v1.Pod{
+		//ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "123"}},
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"bar"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{Spec: v1.PodSpec{NodeName: "nodeA"}, ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"foo": "bar"}}},
+		//{
+		//Spec: v1.PodSpec{
+		//NodeName: "nodeC",
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"123"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeD", Labels: labelRgUS}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{
+		//{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
+		//{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
+		//{ErrPodAffinityNotMatch, ErrExistingPodsAntiAffinityRulesNotMatch},
+		//nil,
+		//},
+		//fits: map[string]bool{
+		//"nodeA": false,
+		//"nodeB": false,
+		//"nodeC": false,
+		//"nodeD": true,
+		//},
+		//name:   "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. NodeC has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA, nodeB and nodeC but can be schedulerd onto nodeD",
+		//nometa: true,
+		//},
+		//{
+		//pod: &v1.Pod{
+		//ObjectMeta: metav1.ObjectMeta{
+		//Labels:    map[string]string{"foo": "123"},
+		//Namespace: "NS1",
+		//},
+		//Spec: v1.PodSpec{
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"bar"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//pods: []*v1.Pod{
+		//{
+		//ObjectMeta: metav1.ObjectMeta{
+		//Labels:    map[string]string{"foo": "bar"},
+		//Namespace: "NS1",
+		//},
+		//Spec: v1.PodSpec{NodeName: "nodeA"},
+		//},
+		//{
+		//ObjectMeta: metav1.ObjectMeta{Namespace: "NS2"},
+		//Spec: v1.PodSpec{
+		//NodeName: "nodeC",
+		//Affinity: &v1.Affinity{
+		//PodAntiAffinity: &v1.PodAntiAffinity{
+		//RequiredDuringSchedulingIgnoredDuringExecution: []v1.PodAffinityTerm{
+		//{
+		//LabelSelector: &metav1.LabelSelector{
+		//MatchExpressions: []metav1.LabelSelectorRequirement{
+		//{
+		//Key:      "foo",
+		//Operator: metav1.LabelSelectorOpIn,
+		//Values:   []string{"123"},
+		//},
+		//},
+		//},
+		//TopologyKey: "region",
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//},
+		//nodes: []v1.Node{
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeA", Labels: labelRgChina}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeB", Labels: labelRgChinaAzAz1}},
+		//{ObjectMeta: metav1.ObjectMeta{Name: "nodeC", Labels: labelRgIndia}},
+		//},
+		//nodesExpectAffinityFailureReasons: [][]algorithm.PredicateFailureReason{
+		//{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
+		//{ErrPodAffinityNotMatch, ErrPodAntiAffinityRulesNotMatch},
+		//nil,
+		//},
+		//fits: map[string]bool{
+		//"nodeA": false,
+		//"nodeB": false,
+		//"nodeC": true,
+		//},
+		//name: "NodeA and nodeB have same topologyKey and label value. NodeA has an existing pod that match the inter pod affinity rule. The pod can not be scheduled onto nodeA, nodeB, but can be scheduled onto nodeC (NodeC has an existing pod that match the inter pod affinity rule but in different namespace)",
+		//},
 	}
 
 	selectorExpectedFailureReasons := []algorithm.PredicateFailureReason{ErrNodeSelectorNotMatch}
